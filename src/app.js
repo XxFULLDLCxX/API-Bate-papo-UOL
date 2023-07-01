@@ -7,6 +7,14 @@ import dayjs from 'dayjs';
 
 dotenv.config();
 
+class Message {
+  error(res, error) {
+    console.error(error);
+    res.sendStatus(500);
+  }
+};
+const message = new Message();
+
 const mongoClient = new MongoClient(process.env.DATABASE_URL);
 const db = mongoClient.db();
 
@@ -42,10 +50,14 @@ app.post('/participants', async (req, res) => {
       });
       return res.sendStatus(201);
     }
-  } catch (error) {
-    console.error(error);
-    res.sendStatus(500);
-  }
+  } catch (error) { message.error(res, error); }
+});
+
+app.get('/participants', async (req, res) => {
+  try {
+    const participants = await db.collection('participants').find().toArray();
+    res.send(participants);
+  } catch (error) { message.error(res, error); }
 });
 
 app.listen(5000, () => {
