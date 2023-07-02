@@ -67,40 +67,94 @@ app.post('/messages', async (req, res) => {
   // {from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
 
   // const { user: from } = req.headers;
-  const from = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
+  if (req.headers.user === undefined) return message.error(res, 404);
+  else {
+    const from = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
 
-  const { to, text, type } = req.body;
-  const participants_schema = joi.object({
-    from: joi.string().required(),
-    to: joi.string().required(),
-    text: joi.string().required(),
-    type: joi.string().valid('message', 'private_message')
-  });
-  const validation = participants_schema.validate({ from, to, text, type }, { abortEarly: false });
+    const { to, text, type } = req.body;
+    const participants_schema = joi.object({
+      from: joi.string().required(),
+      to: joi.string().required(),
+      text: joi.string().required(),
+      type: joi.string().valid('message', 'private_message')
+    });
+    const validation = participants_schema.validate({ from, to, text, type }, { abortEarly: false });
 
-  if (validation.error || !await db.collection('participants').findOne({ name: from }))
-    return res.sendStatus(422);
-  try {
-    await db.collection('messages').insertOne({ from, to, text, type, time: dayjs().format('HH:mm:ss') });
-    return res.sendStatus(201);
-  } catch (error) { message.error(res, error); }
+    if (validation.error || !await db.collection('participants').findOne({ name: from }))
+      return res.sendStatus(422);
+    try {
+      await db.collection('messages').insertOne({ from, to, text, type, time: dayjs().format('HH:mm:ss') });
+      return res.sendStatus(201);
+    } catch (error) { message.error(res, error); }
+  }
 });
 
 app.get('/messages', async (req, res) => {
-  const user = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
-  const limit = Number(req.query.limit);
+  if (req.headers.user === undefined) return message.error(res, 404);
+  else {
+    const user = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
+    const limit = Number(req.query.limit);
 
-  const messages_schema = joi.object({ user: joi.string().required(), limit: joi.number().integer().min(1).positive() });
-  const validation = messages_schema.validate({ user, limit }, { abortEarly: false });
+    const messages_schema = joi.object({ user: joi.string().required(), limit: joi.number().integer().min(1).positive() });
+    const validation = messages_schema.validate({ user, limit }, { abortEarly: false });
 
-  if (validation.error) return message.error(res, 422);
+    if (validation.error) return message.error(res, 422);
 
-  try {
-    const messages = await db.collection('messages').find({ $or: [{ from: user }, { to: user }] }).toArray();
-    res.send(limit ? messages.splice(-limit) : messages);
-  } catch (error) { message.error(res, error); }
+    try {
+      const messages = await db.collection('messages').find({ $or: [{ from: user }, { to: user }] }).toArray();
+      res.send(limit ? messages.splice(-limit) : messages);
+    } catch (error) { message.error(res, error); }
+  }
 });
 
+/* Status Routes */
+app.post('/status', async (req, res) => {
+  if (req.headers.user === undefined) return message.error(res, 404);
+  else {
+    const user = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
+
+    const messages_schema = joi.object({ user: joi.string().required() });
+    const validation = messages_schema.validate({ user }, { abortEarly: false });
+
+    if (validation.error || !await db.collection('participants').findOne({ name: user }))
+      return message.error(res, 404);
+
+    try {
+      await db.collection('participants').updateOne({ name: user }, { $set: { lastStatus: Date.now() } });
+      return res.sendStatus(200);
+    } catch (error) { message.error(res, error); }
+  }
+});
+
+async function active() {
+  /* 
+  [
+  {
+    _id: new ObjectId("64a1699d207dd7d59098b255"),
+    name: 'José Matheus',
+    lastStatus: 1688330759923
+  }
+]
+  */
+  try {
+    const inactive = await db.collection('participants').find({ $expr: { $gt: [{ $subtract: [Date.now(), "$lastStatus"] }, 10000] } }).toArray();
+    console.log(inactive);
+    inactive.forEach(async ({ name }) => {
+      await db.collection('participants').deleteOne({ name });
+      await db.collection('messages').insertOne({
+        from: name,
+        to: 'Todos',
+        text: 'sai da sala...',
+        type: 'status',
+        time: dayjs().format('HH:mm:ss'),
+      });
+    });
+  } catch (error) {
+    console.log(error);
+  }
+}
+
+setInterval(active, 15000);
 
 app.listen(5000, () => {
   console.log('Server is litening on port 5000.');
