@@ -67,7 +67,7 @@ app.post('/messages', async (req, res) => {
   // {from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
 
   // const { user: from } = req.headers;
-  if (req.headers.user === undefined) return message.error(res, 404);
+  if (req.headers.user === undefined) return message.error(res, 422);
   else {
     const from = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
 
@@ -90,7 +90,7 @@ app.post('/messages', async (req, res) => {
 });
 
 app.get('/messages', async (req, res) => {
-  if (req.headers.user === undefined) return message.error(res, 404);
+  if (req.headers.user === undefined) return message.error(res, 422);
   else {
     const user = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
     const limit = Number(req.query.limit);
@@ -101,7 +101,8 @@ app.get('/messages', async (req, res) => {
     if (validation.error) return message.error(res, 422);
 
     try {
-      const messages = await db.collection('messages').find({ $or: [{ from: user }, { to: user }] }).toArray();
+      const messages = await db.collection('messages').find(
+        { $or: [{ from: user }, { $or: [{ to: user }, { to: 'Todos' }] }] }).toArray();
       res.send(limit ? messages.splice(-limit) : messages);
     } catch (error) { message.error(res, error); }
   }
