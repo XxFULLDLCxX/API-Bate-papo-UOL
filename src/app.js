@@ -70,9 +70,9 @@ app.post('/messages', async (req, res) => {
   } */
   // {from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
   try {
-    if (req.headers.user === undefined) return message.error(res, 422);
-    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
     let { to, text, type } = req.body;
+    if (req.headers.user === undefined || !to || !text || !type) return message.error(res, 422);
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
 
     const messages_schema = joi.object({
       from: joi.string().required(),
