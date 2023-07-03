@@ -1,5 +1,7 @@
 import express from 'express';
 import { MongoClient, ObjectId } from 'mongodb';
+import { stripHtml } from "string-strip-html";
+import { trimNewlines } from 'trim-newlines';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import joi from 'joi';
@@ -25,7 +27,7 @@ app.use(cors());
 
 /* Participants Routes */
 app.post('/participants', async (req, res) => {
-  const { name } = req.body;
+  const name = trimNewlines(stripHtml(req.body.name)).result;
   const participants_schema = joi.object({ name: joi.string().required() });
   const validation = participants_schema.validate(req.body, { abortEarly: false });
 
@@ -66,24 +68,23 @@ app.post('/messages', async (req, res) => {
   } */
   // {from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
 
-  // const { user: from } = req.headers;
   if (req.headers.user === undefined) return message.error(res, 422);
   else {
-    const from = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
 
-    const { to, text, type } = req.body;
-    const participants_schema = joi.object({
+    let [to, text, type] = [req.body.to, req.body.text, req.body.type].map(e => trimNewlines(stripHtml(e)).result);
+    const messages_schema = joi.object({
       from: joi.string().required(),
       to: joi.string().required(),
       text: joi.string().required(),
       type: joi.string().valid('message', 'private_message')
     });
-    const validation = participants_schema.validate({ from, to, text, type }, { abortEarly: false });
+    const validation = messages_schema.validate({ from: user, to, text, type }, { abortEarly: false });
 
-    if (validation.error || !await db.collection('participants').findOne({ name: from }))
+    if (validation.error || !await db.collection('participants').findOne({ name: user }))
       return res.sendStatus(422);
     try {
-      await db.collection('messages').insertOne({ from, to, text, type, time: dayjs().format('HH:mm:ss') });
+      await db.collection('messages').insertOne({ from: user, to, text, type, time: dayjs().format('HH:mm:ss') });
       return res.sendStatus(201);
     } catch (error) { message.error(res, error); }
   }
@@ -92,7 +93,7 @@ app.post('/messages', async (req, res) => {
 app.get('/messages', async (req, res) => {
   if (req.headers.user === undefined) return message.error(res, 422);
   else {
-    const user = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
     const limit = Number(req.query.limit);
 
     const messages_schema = joi.object({ user: joi.string().required(), limit: joi.number().integer().min(1).positive() });
@@ -108,11 +109,64 @@ app.get('/messages', async (req, res) => {
   }
 });
 
+app.delete('/messages/:id', async (req, res) => {
+  /* Acentos no user pelo header com o method delete, aparentemente, não precisa do Buffer */
+  if (req.headers.user === undefined) return message.error(res, 422);
+  const { id } = req.params;
+  try {
+    const msg = await db.collection('messages').findOne({ _id: new ObjectId(id) });
+    if (msg === null || !id) return message.error(res, 404);
+    if (msg.from !== req.headers.user) return message.error(res, 401);
+    await db.collection('messages').deleteOne({ _id: new ObjectId(id) });
+    res.sendStatus(200);
+  } catch (error) {
+    message.error(res, 500, error);
+  }
+});
+
+app.put("/messages/:id", async (req, res) => {
+  if (req.headers.user === undefined) return message.error(res, 422);
+  else {
+    const { id } = req.params;
+    /* let { to, text, type } = req.body;
+    [to, text, type] = [to, text, type].map(e => trimNewlines(stripHtml(e)).result);
+
+    */
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
+    let [to, text, type] = [req.body.to, req.body.text, req.body.type].map(e => trimNewlines(stripHtml(e)).result);
+
+    console.log(id, to, text, type, user);
+
+    const messages_schema = joi.object({
+      from: joi.string().required(),
+      to: joi.string().required(),
+      text: joi.string().required(),
+      type: joi.string().valid('message', 'private_message')
+    });
+    const validation = messages_schema.validate({ from: user, to, text, type }, { abortEarly: false });
+
+    if (validation.error || !await db.collection('participants').findOne({ name: user }))
+      return message.error(res, 422, validation);
+    const msg = await db.collection('messages').findOne({ _id: new ObjectId(id) });
+    if (msg.from !== user) message.error(res, 401);
+    try {
+      const result = await db.collection('messages').updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { from: user, to, text, type } }
+      );
+      if (result.matchedCount === 0) return message.error(res, 404);
+      res.sendStatus(201);
+    } catch (error) {
+      message.error(res, 500, error);
+    }
+  }
+});
+
 /* Status Routes */
 app.post('/status', async (req, res) => {
   if (req.headers.user === undefined) return message.error(res, 404);
   else {
-    const user = Buffer.from(req.headers.user, 'latin1').toString('utf-8');
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
 
     const messages_schema = joi.object({ user: joi.string().required() });
     const validation = messages_schema.validate({ user }, { abortEarly: false });
@@ -139,7 +193,6 @@ async function active() {
   */
   try {
     const inactive = await db.collection('participants').find({ $expr: { $gt: [{ $subtract: [Date.now(), "$lastStatus"] }, 10000] } }).toArray();
-    console.log(inactive);
     inactive.forEach(async ({ name }) => {
       await db.collection('participants').deleteOne({ name });
       await db.collection('messages').insertOne({
