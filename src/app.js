@@ -27,14 +27,15 @@ app.use(cors());
 
 /* Participants Routes */
 app.post('/participants', async (req, res) => {
-  if (req.body.name === undefined) return message.error(res, 422);
-  const name = trimNewlines(stripHtml(req.body.name)).result;
-  const participants_schema = joi.object({ name: joi.string().required() });
-  const validation = participants_schema.validate(req.body, { abortEarly: false });
-
-  if (validation.error) return message.error(res, 422);
-
   try {
+    if (req.body.name === undefined) return message.error(res, 422);
+    const participants_schema = joi.object({ name: joi.string().required() });
+    const validation = participants_schema.validate(req.body, { abortEarly: false });
+
+    if (validation.error) return message.error(res, 422);
+
+
+    const name = trimNewlines(stripHtml(req.body.name)).result;
     // Add case-insensitive search for participants later.
     const participant = await db.collection('participants').findOne({ name });
 
@@ -68,21 +69,21 @@ app.post('/messages', async (req, res) => {
     type: "private_message"
   } */
   // {from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
-
-  if (req.headers.user === undefined) return message.error(res, 422);
-  const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
-  let { to, text, type } = req.body;
-
-  const messages_schema = joi.object({
-    from: joi.string().required(),
-    to: joi.string().required(),
-    text: joi.string().required(),
-    type: joi.string().valid('message', 'private_message')
-  });
-  const validation = messages_schema.validate({ from: user, to, text, type }, { abortEarly: false });
-  if (validation.error || !await db.collection('participants').findOne({ name: user }))
-    return res.sendStatus(422);
   try {
+    if (req.headers.user === undefined) return message.error(res, 422);
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
+    let { to, text, type } = req.body;
+
+    const messages_schema = joi.object({
+      from: joi.string().required(),
+      to: joi.string().required(),
+      text: joi.string().required(),
+      type: joi.string().valid('message', 'private_message')
+    });
+    const validation = messages_schema.validate({ from: user, to, text, type }, { abortEarly: false });
+    if (validation.error || !await db.collection('participants').findOne({ name: user }))
+      return res.sendStatus(422);
+
     [to, text, type] = [to, text, type].map(e => trimNewlines(stripHtml(e)).result);
     await db.collection('messages').insertOne({ from: user, to, text, type, time: dayjs().format('HH:mm:ss') });
     return res.sendStatus(201);
@@ -91,17 +92,17 @@ app.post('/messages', async (req, res) => {
 );
 
 app.get('/messages', async (req, res) => {
-  if (req.headers.user === undefined) return message.error(res, 422);
-
-  const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
-  const limit = Number(req.query.limit);
-
-  const messages_schema = joi.object({ user: joi.string().required(), limit: joi.number().integer().min(1).positive() });
-  const validation = messages_schema.validate({ user, limit }, { abortEarly: false });
-
-  if (validation.error) return message.error(res, 422);
-
   try {
+    if (req.headers.user === undefined) return message.error(res, 422);
+
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
+    const limit = Number(req.query.limit);
+
+    const messages_schema = joi.object({ user: joi.string().required(), limit: joi.number().integer().min(1).positive() });
+    const validation = messages_schema.validate({ user, limit }, { abortEarly: false });
+
+    if (validation.error) return message.error(res, 422);
+
     const messages = await db.collection('messages').find(
       { $or: [{ from: user }, { $or: [{ to: user }, { to: 'Todos' }] }] }).toArray();
     res.send(limit ? messages.splice(-limit) : messages);
@@ -111,9 +112,10 @@ app.get('/messages', async (req, res) => {
 
 app.delete('/messages/:id', async (req, res) => {
   /* Acentos no user pelo header com o method delete, aparentemente, não precisa do Buffer */
-  if (req.headers.user === undefined) return message.error(res, 422);
-  const { id } = req.params;
   try {
+    if (req.headers.user === undefined) return message.error(res, 422);
+    const { id } = req.params;
+
     const msg = await db.collection('messages').findOne({ _id: new ObjectId(id) });
     if (msg === null || !id) return message.error(res, 404);
     if (msg.from !== req.headers.user) return message.error(res, 401);
@@ -125,33 +127,33 @@ app.delete('/messages/:id', async (req, res) => {
 });
 
 app.put("/messages/:id", async (req, res) => {
-  if (req.headers.user === undefined) return message.error(res, 422);
-
-  const { id } = req.params;
-  let { to, text, type } = req.body;
-
-  const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
-
-  const messages_schema = joi.object({
-    from: joi.string().required(),
-    to: joi.string().required(),
-    text: joi.string().required(),
-    type: joi.string().valid('message', 'private_message')
-  });
-  const validation = messages_schema.validate({ from: user, to, text, type }, { abortEarly: false });
-
-  if (validation.error || !await db.collection('participants').findOne({ name: user }))
-    return message.error(res, 422, validation);
-  const msg = await db.collection('messages').findOne({ _id: new ObjectId(id) });
-  if (msg.from !== user) message.error(res, 401);
   try {
+    const { id } = req.params;
+    let { to, text, type } = req.body;
+    if (req.headers.user === undefined || !to || !text || !type) return message.error(res, 422);
+
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
+
+    const messages_schema = joi.object({
+      from: joi.string().required(),
+      to: joi.string().required(),
+      text: joi.string().required(),
+      type: joi.string().valid('message', 'private_message')
+    });
+    const validation = messages_schema.validate({ from: user, to, text, type }, { abortEarly: false });
+
+    if (!await db.collection('messages').findOne({ _id: new ObjectId(id) })) return message.error(res, 404);
+    if (validation.error || !await db.collection('participants').findOne({ name: user }))
+      return message.error(res, 422, validation);
+    const msg = await db.collection('messages').findOne({ _id: new ObjectId(id) });
+    if (msg.from !== user) return message.error(res, 401);
+
     [to, text, type] = [to, text, type].map(e => trimNewlines(stripHtml(e)).result);
 
-    const result = await db.collection('messages').updateOne(
+    await db.collection('messages').updateOne(
       { _id: new ObjectId(id) },
       { $set: { from: user, to, text, type } }
     );
-    if (result.matchedCount === 0) return message.error(res, 404);
     res.sendStatus(200);
   } catch (error) {
     message.error(res, 500, error);
@@ -161,17 +163,18 @@ app.put("/messages/:id", async (req, res) => {
 
 /* Status Routes */
 app.post('/status', async (req, res) => {
-  if (req.headers.user === undefined) return message.error(res, 404);
-
-  const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
-
-  const messages_schema = joi.object({ user: joi.string().required() });
-  const validation = messages_schema.validate({ user }, { abortEarly: false });
-
-  if (validation.error || !await db.collection('participants').findOne({ name: user }))
-    return message.error(res, 404);
-
   try {
+    if (req.headers.user === undefined) return message.error(res, 404);
+
+    const user = Buffer.from(trimNewlines(stripHtml(req.headers.user)).result, 'latin1').toString('utf-8');
+
+    const messages_schema = joi.object({ user: joi.string().required() });
+    const validation = messages_schema.validate({ user }, { abortEarly: false });
+
+    if (validation.error || !await db.collection('participants').findOne({ name: user }))
+      return message.error(res, 404);
+
+
     await db.collection('participants').updateOne({ name: user }, { $set: { lastStatus: Date.now() } });
     return res.sendStatus(200);
   } catch (error) { message.error(res, error); }
